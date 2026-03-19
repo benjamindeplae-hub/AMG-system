@@ -4,7 +4,7 @@ from models.orchestrate_markov_model import OrchestrateMarkovModel
 from utils.midi_utils import *
 
 if __name__ == "__main__":
-    MAESTRO_MIDI_DIR = "./maestro-v3.0.0-midi/maestro-v3.0.0"
+    MAESTRO_MIDI_DIR = "./data/maestro-v3.0.0-midi/maestro-v3.0.0"
     SOUNDFONT_PATH = "./soundfonts/FluidR3_GM_GS.sf2"
 
     # currently not used variable

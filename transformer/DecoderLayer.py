@@ -4,7 +4,7 @@ from PositionWiseFeedForward import PositionWiseFeedForward
 
 class DecoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, d_ff, dropout):
-        super(DecoderLayer, self).__init__()
+        super().__init__()
         self.self_attn = MultiHeadAttention(d_model, num_heads)
         self.cross_attn = MultiHeadAttention(d_model, num_heads)
         self.feed_forward = PositionWiseFeedForward(d_model, d_ff)
@@ -14,10 +14,15 @@ class DecoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x, enc_output, src_mask, tgt_mask):
+        # 1. Masked self-attention
         attn_output = self.self_attn(x, x, x, tgt_mask)
         x = self.norm1(x + self.dropout(attn_output))
+
+        # 2. Cross-attention with encoder output
         attn_output = self.cross_attn(x, enc_output, enc_output, src_mask)
         x = self.norm2(x + self.dropout(attn_output))
+
+        # 3. Feed-forward
         ff_output = self.feed_forward(x)
         x = self.norm3(x + self.dropout(ff_output))
         return x

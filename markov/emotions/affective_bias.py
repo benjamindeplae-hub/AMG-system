@@ -74,6 +74,9 @@ class AffectiveBias:
             "prefer_dissonant": 1.0 - vn,
         }
 
+    """
+    Score event using target rules that constrain the output to a guaranteed emotional tone
+    """
     @staticmethod
     def _score_event(event, targets, key):
         """
@@ -107,6 +110,15 @@ class AffectiveBias:
         # EU       Do   Do#  Re   Re#  Mi   Fa   Fa#  Sol  Sol# La   La#   Si
         # Major key intervals: 0, 2, 4, 5, 7, 9, 11 = C D E  F G A  B  = Do Re Mi  Fa Sol La   Si 
         # Minor key intervals: 0, 2, 3, 5, 7, 8, 10 = C D D# F G G# A# = Do Re Re# Fa Sol Sol# La#
+
+        # Major scale pattern: W W H W W W H
+        # Each "W" = 2 semitones, each "H" = 1 semitone
+        # Starting from 0 and adding each step:
+        # 0 -> +2 -> +2 -> +1 -> +2 -> +2 -> +2 -> +1
+        # 0     2     4     5     7     9     11   (12=octave)
+        # Minor scale pattern: W H W W H W W
+        # 0 -> +2 -> +1 -> +2 -> +2 -> +1 -> +2 -> +2
+        # 0     2     3     5     7     8     10    (12=octave)
         MAJOR_PCS = {0, 2, 4, 5, 7, 9, 11}
         MINOR_PCS = {0, 2, 3, 5, 7, 8, 10}
  
@@ -114,51 +126,77 @@ class AffectiveBias:
             # pitch class
             pcs = {p % 12 for p in pitch_list}
             prefer_minor = targets["prefer_minor"]
+
             if key == "minor":
+                # This is a simple overlap ratio: 
+                # what fraction of the event's pitch classes belong to the target scale? 
+                # If all 3 notes land on minor scale tones -> mode_match = 1.0. If none do -> mode_match = 0.0
                 mode_match = len(pcs & MINOR_PCS) / len(pcs)
+                # mode_match * prefer_minor             -> Reward for fitting the minor scale when the emotion wants minor
+                # (1 - mode_match) * (1 - prefer_minor) -> Reward for not fitting minor when the emotion wants major
                 mode_score = mode_match * prefer_minor       + (1 - mode_match) * (1 - prefer_minor)
             else:
                 mode_match = len(pcs & MAJOR_PCS) / len(pcs)
                 mode_score = mode_match * (1 - prefer_minor) + (1 - mode_match) * prefer_minor
-            score += mode_score * 2.0
-            weight_total += 2.0
- 
-        # ── 2. Register (pitch height) ─────────────────────────────────────────
-        # MIDI pitch ~60 = middle C; normalise 36–84 range → [0,1]
+            score += mode_score * 1.8
+            weight_total += 1.8
+        
+        """
+        2. Register pitch height
+        """
         if pitch_list:
+            # Average MIDI note number across all pitches in the event. MIDI notes range from 0–127, with middle C (C4) at 60
             mean_pitch = sum(pitch_list) / len(pitch_list)
+            # This maps a "musically relevant" MIDI range onto a 0–1 scale:
+            # 36 is C2 is treated as the practical low end
+            # 36 + 48 = 84 is C6 is treated as the practical high end
+            # A note at 36 -> 0.0 (low register)
+            # A note at 84 -> 1.0 (high register)
+            # max/min clamps anything outside that range
+            # So pitch_norm is essentially "how high is this event, relatively speaking?"
             pitch_norm = max(0.0, min(1.0, (mean_pitch - 36) / 48))
+            # the closer pitch_norm is to the target, the higher the score
+            # Perfect match -> 1.0 - 0 = 1.0
+            # Worst case -> 1.0 - 1.0 = 0.0
             register_score = 1.0 - abs(pitch_norm - targets["prefer_high_pitch"])
-            score += register_score * 1.5
-            weight_total += 1.5
- 
-        # ── 3. Density (inverse of delta) ─────────────────────────────────────
-        # Small delta → dense / high arousal feel
+            score += register_score * 1.4
+            weight_total += 1.4
+
+        """
+        3. Density inverse of delta
+        """
+        # Small delta -> dense / high arousal feel
         # Assume delta is in ticks; normalise 0–480 range
         if isinstance(delta, (int, float)) and delta >= 0:
+            # delta is the time gap between notes in MIDI ticks
+            # Dividing by 480 (a standard MIDI "one beat" at 480 ticks-per-quarter-note) normalizes it to [0, 1]
             delta_norm = max(0.0, min(1.0, delta / 480))
+            # The inversion (1 - delta_norm) is the key step, it flips the delta into an actual density value:
+            # Small delta (notes close together) -> large (1 - delta_norm) -> high density
+            # Large delta (notes far apart) -> small (1 - delta_norm) -> low density
+            # The closer the event's density is to prefer_dense, the higher the score
+            # Perfect match -> 1.0, worst case -> 0.0
             density_score = 1.0 - abs((1 - delta_norm) - targets["prefer_dense"])
-            score += density_score * 1.0
-            weight_total += 1.0
- 
+            score += density_score * 1.3
+            weight_total += 1.3
+        
+        # neutral for malformed events
         if weight_total == 0:
             return 0.5
- 
+
+        # Weighted average in [0, 1]
         return score / weight_total
  
-
-
-
-
-    # ── sampler factory ───────────────────────────────────────────────────────
- 
-    def _make_biased_sampler(self, submodel, key: str):
+    """
+    sampler factory
+    """
+    def _make_biased_sampler(self, submodel, key):
         """
         Return a replacement _sample_next function that blends the Markov
-        distribution with affective compatibility scores.
+        distribution with affective compatibility scores
  
         The step counter is closed over a mutable list so the nested function
-        can increment it across calls without a class attribute.
+        can increment it across calls without a class attribute
         """
         step_counter = [0]
         alpha = self.alpha
@@ -207,7 +245,7 @@ class AffectiveBias:
     """
     Generate melody
     """
-    def generate(self, length: int = 100, key: str = None) -> list:
+    def generate(self, length=100, key=None):
         """
         Generate a song with emotion bias applied at each step.
         Returns the same list-of-(delta, duration, pitches) tuples as

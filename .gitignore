@@ -1,3 +1,8 @@
+# Ignore own files
+markov/markov_model.pkl
+markov/markov_output.mid
+soundfonts
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
