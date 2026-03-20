@@ -104,6 +104,6 @@ for idx in range(len(emopia)):
 # Without saving, you would need to recreate the tokenizer with the exact same config, which is error-prone if the config is complex
 tokenizer.save_pretrained("data/emopia/remi_tokens_per_song")
 
-print(f"\nDone! {len(remi_dataset)} songs tokenized.")
+print(f"\nDone! {len(remi_dataset)} songs tokenized")
 print(f"Vocab size: {len(tokenizer)}")
 print(f"Token types: {tokenizer.vocab}")
